@@ -7,11 +7,11 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 from datetime import datetime, timezone
 
-CSV_INPUT_FILE = 'iks_example.csv'  # Nombre de tu archivo CSV de entrada. Se pone el de test por defecto
-CSV_OUTPUT_FILE = 'output_data.csv'  # Nombre para el archivo CSV de salida
-DYNAMODB_TABLE_NAME = 'your-dynamo-table'  # El nombre de tu tabla en DynamoDB
-PRIMARY_KEY_NAME = 'PK'  # El nombre del atributo de tu clave primaria
-CSV_PK_COLUMN_NAME = 'Idempotency Key'  # El nombre de la columna en tu CSV que contiene las PKs
+CSV_INPUT_FILE = 'iks_example.csv'  # Name of your input CSV file. Default is the test file.
+CSV_OUTPUT_FILE = 'output_data.csv'  # Name for the output CSV file.
+DYNAMODB_TABLE_NAME = 'your-dynamo-table'  # The name of your DynamoDB table.
+PRIMARY_KEY_NAME = 'PK'  # The name of your primary key attribute.
+CSV_PK_COLUMN_NAME = 'Idempotency Key'  # The name of the column in your CSV containing the PKs.
 AWS_REGION = 'your-aws-region'
 
 dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION)
@@ -19,8 +19,8 @@ table = dynamodb.Table(DYNAMODB_TABLE_NAME)
 
 class DecimalEncoder(json.JSONEncoder):
     """
-    Esta clase ayuda a convertir los objetos Decimal de DynamoDB
-    en enteros o flotantes que JSON sí entiende.
+    This helper class converts DynamoDB Decimal objects
+    into integers or floats that the standard JSON library can understand.
     """
     def default(self, o):
         if isinstance(o, decimal.Decimal):
@@ -31,37 +31,37 @@ class DecimalEncoder(json.JSONEncoder):
         return super(DecimalEncoder, self).default(o)
 
 
-def transformar_item(item_original):
+def transform_item(original_item):
     """
-    Toma un item de DynamoDB y lo convierte al nuevo formato deseado.
+    Takes a DynamoDB item and transforms it into the desired new format.
     """
-    pk_value = item_original.get('PK')
+    pk_value = original_item.get('PK')
 
-    campos_principales_conocidos = [
+    known_main_fields = [
         'PK', 'SK', 'reported_date', 'business_unit', 'member_id',
         'event_type', 'amount', 'is_refund', 'created_at', 'entity_type',
         'transaction_id', 'transaction_code', 'currency'
     ]
 
     data_object = {
-        "reportedDate": item_original.get('reported_date'),
-        "businessUnitId": str(item_original.get('business_unit')),  # Convertido a string
-        "memberId": item_original.get('member_id'),
-        "eventTypeId": item_original.get('event_type'),
-        "amount": item_original.get('amount'),
-        "isRefund": item_original.get('is_refund'),
+        "reportedDate": original_item.get('reported_date'),
+        "businessUnitId": str(original_item.get('business_unit')),  # Converted to string
+        "memberId": original_item.get('member_id'),
+        "eventTypeId": original_item.get('event_type'),
+        "amount": original_item.get('amount'),
+        "isRefund": original_item.get('is_refund'),
         "batch": pk_value,
     }
 
-    nuevo_formato = {
-        "eventType": "EVENT_CREATED",  # Valor fijo
-        "dateTime": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),  # Fecha y hora actual
-        "version": "v1.0",  # Valor fijo
+    new_format = {
+        "eventType": "EVENT_CREATED",  # Fixed value
+        "dateTime": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),  # Current date and time
+        "version": "v1.0",  # Fixed value
         "idempotencyKey": pk_value,
-        "data": [data_object]  # El objeto 'data' va dentro de una lista
+        "data": [data_object]  # The 'data' object goes inside a list
     }
 
-    return nuevo_formato
+    return new_format
 
 
 def query_items_by_pk(pk_value):
@@ -76,13 +76,13 @@ def query_items_by_pk(pk_value):
             )
             all_items.extend(response.get('Items', []))
     except ClientError as e:
-        print(f"Error de AWS al consultar la PK {pk_value}: {e.response['Error']['Message']}")
+        print(f"AWS error while querying PK {pk_value}: {e.response['Error']['Message']}")
         return None
     return all_items
 
 
 def main():
-    print(f"Leyendo claves desde '{CSV_INPUT_FILE}'...")
+    print(f"Reading keys from '{CSV_INPUT_FILE}'...")
     pks_to_fetch = []
     try:
         with open(CSV_INPUT_FILE, mode='r', encoding='utf-8') as infile:
@@ -91,32 +91,32 @@ def main():
                 pks_to_fetch.append(row[CSV_PK_COLUMN_NAME])
         unique_pks = list(set(pks_to_fetch))
     except FileNotFoundError:
-        print(f"Error: No se encontró el archivo de entrada '{CSV_INPUT_FILE}'.")
+        print(f"Error: Input file not found at '{CSV_INPUT_FILE}'.")
         return
 
-    print(f"Se encontraron {len(unique_pks)} claves únicas para consultar...")
+    print(f"Found {len(unique_pks)} unique keys to query...")
 
     with open(CSV_OUTPUT_FILE, mode='w', newline='', encoding='utf-8') as outfile:
         writer = csv.writer(outfile)
         writer.writerow(['Searched_PK', 'Found_Item_Body'])
 
         for i, pk_value in enumerate(unique_pks):
-            print(f"Consultando registros para la PK {i + 1}/{len(unique_pks)}: {pk_value}")
+            print(f"Querying records for PK {i + 1}/{len(unique_pks)}: {pk_value}")
             items = query_items_by_pk(pk_value)
 
             if items is None:
-                writer.writerow([pk_value, 'ERROR_DURANTE_LA_CONSULTA'])
+                writer.writerow([pk_value, 'ERROR_DURING_QUERY'])
                 continue
 
             if items:
                 for item in items:
-                    item_transformado = transformar_item(item)
-                    json_body = json.dumps(item_transformado, cls=DecimalEncoder, indent=4, ensure_ascii=False)
+                    transformed_item = transform_item(item)
+                    json_body = json.dumps(transformed_item, cls=DecimalEncoder, indent=4, ensure_ascii=False)
                     writer.writerow([pk_value, json_body])
             else:
-                writer.writerow([pk_value, 'NO_ENCONTRADO'])
+                writer.writerow([pk_value, 'NOT_FOUND'])
 
-    print("¡Proceso completado exitosamente! ✨")
+    print("Process completed successfully! ✨")
 
 
 if __name__ == '__main__':
